@@ -8,20 +8,20 @@ export const P = {
   body: { w: 70, d: 70, h: 68, r: 17, rTop: 17, rBottom: 0, wall: 1.8, cover: 1.8 },
   // 底板 4 颗 M2 自攻：螺丝在 r28.5（避开 Ø44 充电环），柱外径 9，柱高 10.2
   screw: { r: 28.5, od: 9, hole: 2.0, h: 10.2 },
-  face: { w: 42, h: 36, r: 11, bezel: 1.0, proud: 0.7, cy: 49 },
+  face: { w: 42, h: 36, r: 11, bezel: 1.0, proud: 0.7, flange: 0.5, cy: 49 },
   // 帽壳直径约 0.77×机身、帽檐约等于机身宽：帽子是"扣在头顶"的，不能宽过脸
   // 檐内孔 = 2*(domeR-0.4)，比头顶那一截机身大 0.4mm 单边间隙，帽子能真的套下去
   // lift = -4：帽檐落座面抬到 h−4（机身收肩之后最宽的一圈）。
   // 再高（−3 以上）机身已经被 r17 的顶圆角收到 24.7，比 Ø52.4 的帽座还窄，
   // 帽座就成了倒扣的蘑菇头；落在 h−4 时机身半宽 26.2，帽座正好与肩齐平
-  hat: { domeR: 27, domeH: 27, brimR: 34, brimT: 3.2, lift: -4.0 },
+  hat: { domeR: 27, domeH: 27, brimR: 34, brimT: 3.2, lift: -4.0, rib: 0.11 },
   // 坞高 24：后仰角越大，倾斜的托盘后沿越需要向下让位，坞就得越深。
   // 20mm 高只能装 ~4.5° 后仰；要 12° 得 33mm 深碗（会变成"桶"）
   // hole 90：本体圆角后的最大外接半径 42.4，坞口半径 43 只剩 0.6 太贴，放到 45
   dock: { w: 100, d: 100, h: 24, r: 28, hole: 90, holeR: 24, floor: 5 },
-  // rimT 5.0：唇口内径 72，本体底面外接 42.46，唇口 43.04，角上才留得出 0.58；
-  // 5.5 时角上只剩 0.09，装配时本体擦唇口
-  tray: { w: 82, r: 24, plate: 4, rim: 4.5, rimT: 5.0, bottom: 11 },
+  // 托盘就是一块斜放的平盘（旧版外圈唇口删了——纯装饰）。82 宽：本体底面外接
+  // 42.46，盘面角上留 5 以上让位，按压时本体不蹭盘沿
+  tray: { w: 82, r: 24, plate: 4, bottom: 11 },
   ring: { od: 44, id: 39, hub: 14 },
   pogo: { rOut: 20.75, rIn: 0 },
   sw: { bodyH: 4, gap: 0.5 },
@@ -60,7 +60,6 @@ const Y = {
   swTop,
   trayBottom,
   trayPlate,                                   // 落座面中心高度（面本身倾斜 12°）
-  get trayRim() { return Y.trayPlate + P.tray.rim; },
   bodyBottom: trayPlate,
   get bodyTop() { return Y.bodyBottom + B.h; },
   get brim() { return Y.bodyTop + P.hat.lift; },
@@ -303,11 +302,13 @@ export function buildBody() {
   }
   g.add(grille);
 
-  // 屏幕：黑色外框（带孔）+ 内嵌玻璃（玻璃只比机身高 0.05，靠边框高出 0.7 形成凹槽感）
+  // 屏幕：黑色外框（带孔）+ 内嵌玻璃（玻璃只比机身高 0.05，靠边框高出 0.7 形成凹槽感）。
+  // 边框往壳里加深 flange=0.5：前壁四角的圆弧凹进去 0.43，靠边框的翻边盖住，
+  // 不用做屏幕台凸台（r 角调不动：帽檐线要 r≥15.5、托盘唇口要 r≥16.8，屏幕平贴要 r≤13）
   const s = roundedRectShape(f.w + f.bezel * 2, f.h + f.bezel * 2, f.r + f.bezel);
   s.holes.push(new THREE.Path(roundedRectShape(f.w, f.h, f.r).getPoints(64).reverse()));
-  const bezel = new THREE.ExtrudeGeometry(s, { depth: f.proud, bevelEnabled: false, curveSegments: 24 });
-  bezel.translate(0, f.cy, b.d / 2 - 0.05);
+  const bezel = new THREE.ExtrudeGeometry(s, { depth: f.proud + f.flange, bevelEnabled: false, curveSegments: 24 });
+  bezel.translate(0, f.cy, b.d / 2 - 0.05 - f.flange);
   g.add(mesh(bezel, MAT.black, 'bezel'));
 
   // 玻璃用圆角形状，跟边框内孔完全对齐（方形平面会在四角戳出边框）
@@ -321,10 +322,11 @@ export function buildBody() {
   return g;
 }
 
-// 帽壳网格：旋转椭球 + 径向调制出的前后中脊，一体成型（没有贴着焊上去的脊片，
-// 也就没有拼缝和打印时的悬空薄片）。phi=0 是顶点，ridge 的强度随 sin(phi) 衰减，
-// 所以穹顶是顺的，只在近根部最鼓。
-function domeGeometry(R, H, zScale = 1.06, ridge = 0.035, segU = 240, segV = 64) {
+// 帽壳网格：旋转椭球 + 前后方向的帽壳筋（真安全帽的中脊：宽 ~18mm、高 ~3mm，
+// 从帽檐前缘翻过头顶走到后檐，两侧 74° 各一道副脊），一体成型没有贴片。
+// 脊按经度角调制、随 sin(phi)^0.5 在顶点正上方柔性收零（极点不裂）；
+// 之前按 x0 距离算的做法会随纬度圈收缩成均匀鼓包，读起来是气球不是安全帽
+function domeGeometry(R, H, zScale = 1.06, ridge = 0.11, segU = 240, segV = 64) {
   const pos = [], uv = [], idx = [];
   for (let j = 0; j <= segV; j++) {
     const phi = (Math.PI / 2) * (j / segV);
@@ -332,12 +334,12 @@ function domeGeometry(R, H, zScale = 1.06, ridge = 0.035, segU = 240, segV = 64)
     for (let i = 0; i <= segU; i++) {
       const th = (Math.PI * 2) * (i / segU);
       const x0 = Math.cos(th) * s, z0 = Math.sin(th) * s;
-      // 壳体的加强筋：中间一条脊 + 两侧各一道浅槽，等于把帽壳分成前后两瓣。
-      // 这是注塑件本身有的结构，所以直接调制在同一个网格里，不另贴片
-      const u = Math.abs(x0);
-      const rib = Math.exp(-Math.pow(u / 0.16, 2));
-      const groove = Math.exp(-Math.pow((u - 0.45) / 0.20, 2));
-      const k = 1 + ridge * (rib - 0.45 * groove) * Math.pow(s, 0.35);
+      // 脊按经度角算（不按 x0 距离）：宽度在任何纬度都恒定，不会随纬度圈收缩成鼓包。
+      // 中脊在前后方向（th=0/π），两侧 74° 处各一道副脊，安全帽的帽壳就是这三条
+      const a = ((th % Math.PI) + Math.PI) % Math.PI;
+      const dth = Math.min(a, Math.PI - a);          // 到最近一条中脊线的角距离
+      const rib = Math.exp(-Math.pow(dth / 0.32, 2)) + 0.45 * Math.exp(-Math.pow((dth - 1.3) / 0.20, 2));
+      const k = 1 + ridge * rib * Math.pow(s, 0.5);  // 顶点正上方柔性收零，极点不裂
       pos.push(x0 * R * k, c * H * k, z0 * R * zScale * k);
       uv.push(i / segU, j / segV);
     }
@@ -382,7 +384,7 @@ export function buildHat() {
 
   // 帽壳：一体成型（中脊就在这个网格里），底边正好压在帽檐上
   const domeY = Y.brim + T;
-  const dome = mesh(domeGeometry(h.domeR, h.domeH, 1.06, 0.035), MAT.mustard, 'dome');
+  const dome = mesh(domeGeometry(h.domeR, h.domeH, 1.06, h.rib), MAT.mustard, 'dome');
   dome.position.y = domeY;
   g.add(dome);
 
@@ -432,9 +434,7 @@ export function buildDock() {
   tray.position.y = Y.trayPlate;
   tray.rotation.x = -TILT;
   tray.add(mesh(slab({ w: t.w, h: t.w, r: t.r }, null, t.plate, -t.plate, 1.2), MAT.mustard, 'trayPlate'));
-  tray.add(mesh(slab({ w: t.w, h: t.w, r: t.r },
-    { w: t.w - t.rimT * 2, h: t.w - t.rimT * 2, r: t.r - t.rimT }, t.rim, 0, 1.0),
-    MAT.mustard, 'trayRim'));
+  // 旧版唇口圈删了：纯装饰，受压时限位靠硅胶柱+开关自己（唇口顶面离坞壁还有 2.7，碰不到）
 
   // pogo 针 ×2，装在落座面上、垂直于座位面（跟托盘一起倾斜），随托盘浮动所以接触压力不变。
   // 画的是压缩到位的状态：针尖 1.05，沉台顶（金环面）0.94，留 0.11 的预压
