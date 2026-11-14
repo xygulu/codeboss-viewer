@@ -28,6 +28,10 @@ export const P = {
   pillar: { n: 4, r: 30, d: 6 },
   batt: { r: 9.25, h: 58, x: -12, z: -1 },
   mcu: { w: 21, d: 17.5, h: 5, x: 17, z: 2 },
+  // 喇叭：20×14 微型喇叭（1W/8Ω 级）贴背壁内侧，出声孔开在背壳上。
+  // 正面被屏占满、屏下那条被托盘唇口挡到 y≈25.4，只有背面能开孔。
+  // holeN 阵列 6×4、间距 3.0/2.8、孔 Ø1.5：开口 42mm² ≈ 20mm 单元的 21%
+  speaker: { w: 20, h: 14, d: 5, chD: 9, y: 46, holeR: 0.75, holeNx: 6, holeNy: 4, holeSx: 3.0, holeSy: 2.8 },
   // 姿态：本体不是正着插在底座里，而是往后仰一点坐在托座上（正角度 = 后仰，脸朝上）
   pose: { tilt: 7, sink: 0, yaw: 0 },
 };
@@ -281,6 +285,24 @@ export function buildBody() {
     g.add(rib);
   }
 
+  // 喇叭网：背壳上 6×4 的 Ø1.5 出声孔。真实模具里是布尔开孔（和屏幕窗口同一件待办），
+  // 这里用穿壁的黑色短柱表示——孔外侧比壁面高 0.03，从外面看就是奶白壳上一片黑孔。
+  // 阵列落在 y=41.8~50.2、|x|≤8.25，整片都在背面平壁和 20×14 喇叭的正面上
+  const sp = P.speaker, wallZ = -b.d / 2, holeH = b.wall + 0.2;
+  const grille = new THREE.Group(); grille.name = 'speakerGrille';
+  const holeGeo = new THREE.CylinderGeometry(sp.holeR, sp.holeR, holeH, 12);
+  for (let c = 0; c < sp.holeNx; c++) {
+    for (let r = 0; r < sp.holeNy; r++) {
+      const hole = mesh(holeGeo, MAT.black, 'grilleHole');
+      hole.rotation.x = Math.PI / 2;
+      hole.position.set((c - (sp.holeNx - 1) / 2) * sp.holeSx,
+        sp.y + (r - (sp.holeNy - 1) / 2) * sp.holeSy,
+        wallZ - 0.03 + holeH / 2);
+      grille.add(hole);
+    }
+  }
+  g.add(grille);
+
   // 屏幕：黑色外框（带孔）+ 内嵌玻璃（玻璃只比机身高 0.05，靠边框高出 0.7 形成凹槽感）
   const s = roundedRectShape(f.w + f.bezel * 2, f.h + f.bezel * 2, f.r + f.bezel);
   s.holes.push(new THREE.Path(roundedRectShape(f.w, f.h, f.r).getPoints(64).reverse()));
@@ -489,6 +511,23 @@ export function buildInternals() {
   const imu = mesh(new THREE.BoxGeometry(3.2, 1, 3.2), MAT.black, 'imu');
   imu.position.set(m.x - 12, Y.bodyBottom + 44.5, m.z + 1);
   g.add(imu);
+
+  // 喇叭：出声面朝后，压在 1 厚的泡棉垫上贴住背壁，和背壳的 6×4 网孔对上；
+  // 后面套一个 22×16×9 的封闭后腔（约 3.2 cm³）。后腔不封就是前后声短路，
+  // 1W 的 20mm 单元只剩"沙沙"——这是喇叭能不能听的分界线
+  const sp = P.speaker;
+  const wallIn = P.body.d / 2 - P.body.wall;
+  const gasket = mesh(new THREE.BoxGeometry(sp.w + 2, sp.h + 2, 1), MAT.silicone, 'speakerGasket');
+  gasket.position.set(0, sp.y, -(wallIn - 0.5));
+  g.add(gasket);
+
+  const spk = mesh(new THREE.BoxGeometry(sp.w, sp.h, sp.d), MAT.black, 'speaker');
+  spk.position.set(0, sp.y, -(wallIn - 1 - sp.d / 2));
+  g.add(spk);
+
+  const chamber = mesh(new THREE.BoxGeometry(sp.w + 2, sp.h + 2, sp.chD), MAT.black, 'speakerChamber');
+  chamber.position.set(0, sp.y, -(wallIn - 1 - sp.d - sp.chD / 2));
+  g.add(chamber);
 
   // 屏幕模组贴在内壁前方，四角留 0.1（方屏的角会顶到内腔圆角，纯贴面会穿 0.3）
   const panel = mesh(new THREE.BoxGeometry(P.face.w, P.face.h, 3), MAT.black, 'panel');
