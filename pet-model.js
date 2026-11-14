@@ -5,10 +5,14 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 export const P = {
   // r 是平面圆角；顶边沿用 17（帽子靠这一圈的收窄套住）。底边**不倒圆**：
   // 一倒圆，杯口就比腔体窄（30.2 vs 33.2），抽芯时是倒扣；直角底边也让底面是完整 70×70
-  body: { w: 70, d: 70, h: 68, r: 17, rTop: 17, rBottom: 0, wall: 1.8, cover: 1.8 },
+  // 平面圆角 18（参考 dock1-yellow-2 的圆润机身）。加大一分，屏幕四角的落壁缝就深一分：
+  // r18 时角上凹 0.71，靠 face.flange 0.8 盖住；模组相应前移见 face.stand
+  body: { w: 70, d: 70, h: 68, r: 18, rTop: 17, rBottom: 0, wall: 1.8, cover: 1.8 },
   // 底板 4 颗 M2 自攻：螺丝在 r28.5（避开 Ø44 充电环），柱外径 9，柱高 10.2
   screw: { r: 28.5, od: 9, hole: 2.0, h: 10.2 },
-  face: { w: 42, h: 36, r: 11, bezel: 1.0, proud: 0.7, flange: 0.5, cy: 49 },
+  // stand：模组前面到外壁内表面的距离。机身圆角加大后内腔角也跟着收，
+  // 模组四角得往里让（r18 时平区离壁 0.85，靠泡棉垫补）；flange 相应加深盖住落壁缝
+  face: { w: 42, h: 36, r: 11, bezel: 1.0, proud: 0.7, flange: 0.8, stand: 2.05, cy: 49 },
   // 帽壳直径约 0.77×机身、帽檐约等于机身宽：帽子是"扣在头顶"的，不能宽过脸
   // 檐内孔 = 2*(domeR-0.4)，比头顶那一截机身大 0.4mm 单边间隙，帽子能真的套下去
   // lift = -4：帽檐落座面抬到 h−4（机身收肩之后最宽的一圈）。
@@ -18,7 +22,9 @@ export const P = {
   // 坞高 24：后仰角越大，倾斜的托盘后沿越需要向下让位，坞就得越深。
   // 20mm 高只能装 ~4.5° 后仰；要 12° 得 33mm 深碗（会变成"桶"）
   // hole 90：本体圆角后的最大外接半径 42.4，坞口半径 43 只剩 0.6 太贴，放到 45
-  dock: { w: 100, d: 100, h: 24, r: 28, hole: 90, holeR: 24, floor: 5 },
+  // 底座参考 dock1-yellow-2：饱满闭合的奶白枕（外角 r32）+ 亮柠檬黄内衬圈。
+  // mouth 90×90 r28：角上弧心和托盘角弧心同为 ±17，整圈间隙均匀 4（托盘角 48.04 / 口角 52.04）
+  dock: { w: 100, d: 100, h: 24, r: 32, hole: 90, holeR: 28, floor: 5 },
   // 托盘就是一块斜放的平盘（旧版外圈唇口删了——纯装饰）。82 宽：本体底面外接
   // 42.46，盘面角上留 5 以上让位，按压时本体不蹭盘沿
   tray: { w: 82, r: 24, plate: 4, bottom: 11 },
@@ -77,7 +83,9 @@ const plastic = (color, rough = 0.45) => new THREE.MeshPhysicalMaterial({
 });
 export const MAT = {
   cream: plastic(0xf5ebda, 0.5),
-  mustard: plastic(0xe0a71c, 0.42),
+  // 底色比参考图深一档：查看器 AgX + 3.0 key 会把饱和度洗掉 ~一半，渲出来才落在目标色
+  mustard: plastic(0xa87418, 0.6),    // 安全帽金棕（参考 dock1-yellow-2，旧 0xe0a71c 太橙）
+  lemon: plastic(0xc9ad14, 0.6),      // 底座内衬亮柠檬黄（同参考图）
   gold: new THREE.MeshStandardMaterial({ color: 0xb08d57, roughness: 0.26, metalness: 0.95 }),
   black: new THREE.MeshStandardMaterial({ color: 0x3d2f24, roughness: 0.45, metalness: 0.35 }),
   silicone: new THREE.MeshStandardMaterial({ color: 0xd8d2c6, roughness: 0.9 }),
@@ -423,9 +431,11 @@ export function buildDock() {
   const g = new THREE.Group(); g.name = 'dock';
   const d = P.dock, t = P.tray;
 
+  // 闭合的枕形外壳（参考 dock1-yellow-2）：整圈侧壁 0 到顶，不再留露出托盘的空带。
+  // 上下 2 的 bevel 让外轮廓读起来是"枕头"，坞口边缘也翻出圆唇
   g.add(mesh(slab({ w: d.w, h: d.d, r: d.r },
-    { w: d.hole, h: d.hole, r: d.holeR }, Y.wallTop - d.floor, d.floor, 1.4), MAT.cream, 'dockWall'));
-  g.add(mesh(slab({ w: d.w, h: d.d, r: d.r }, null, d.floor, 0, 1.8), MAT.cream, 'dockFloor'));
+    { w: d.hole, h: d.hole, r: d.holeR }, Y.wallTop, 0, 2), MAT.cream, 'dockWall'));
+  g.add(mesh(slab({ w: d.hole, h: d.hole, r: d.holeR }, null, d.floor, 0, 1.2), MAT.cream, 'dockFloor'));
 
   // 浮动托盘：整体随落座面倾斜 12°，所以它是一块斜放的板（做楔形要 ~15mm 厚，装不进浅底座）。
   // 托盘只沿竖直方向浮动（4 根硅胶柱 + 中心导向），倾斜由托盘自身姿态保证
@@ -433,7 +443,7 @@ export function buildDock() {
   tray.name = 'tray';
   tray.position.y = Y.trayPlate;
   tray.rotation.x = -TILT;
-  tray.add(mesh(slab({ w: t.w, h: t.w, r: t.r }, null, t.plate, -t.plate, 1.2), MAT.mustard, 'trayPlate'));
+  tray.add(mesh(slab({ w: t.w, h: t.w, r: t.r }, null, t.plate, -t.plate, 1.2), MAT.lemon, 'trayPlate'));
   // 旧版唇口圈删了：纯装饰，受压时限位靠硅胶柱+开关自己（唇口顶面离坞壁还有 2.7，碰不到）
 
   // pogo 针 ×2，装在落座面上、垂直于座位面（跟托盘一起倾斜），随托盘浮动所以接触压力不变。
@@ -531,7 +541,7 @@ export function buildInternals() {
 
   // 屏幕模组贴在内壁前方，四角留 0.1（方屏的角会顶到内腔圆角，纯贴面会穿 0.3）
   const panel = mesh(new THREE.BoxGeometry(P.face.w, P.face.h, 3), MAT.black, 'panel');
-  panel.position.set(0, P.face.cy, P.body.d / 2 - P.body.wall - 1.9);
+  panel.position.set(0, P.face.cy, P.body.d / 2 - P.body.wall - P.face.stand);
   g.add(panel);
 
   return g;
@@ -546,17 +556,17 @@ export function makeFaceTexture() {
   grd.addColorStop(0, '#ffdcbe'); grd.addColorStop(1, '#f5b78c');
   x.fillStyle = grd; x.fillRect(0, 0, 512, 480);
   const eye = (cx) => {
-    x.fillStyle = '#2b1b14'; x.beginPath(); x.ellipse(cx, 200, 60, 72, 0, 0, 7); x.fill();
+    x.fillStyle = '#2b1b14'; x.beginPath(); x.ellipse(cx, 202, 66, 80, 0, 0, 7); x.fill();
     x.fillStyle = '#fff';
-    x.beginPath(); x.arc(cx - 20, 174, 19, 0, 7); x.fill();
-    x.beginPath(); x.arc(cx + 22, 228, 8, 0, 7); x.fill();
+    x.beginPath(); x.arc(cx - 22, 172, 21, 0, 7); x.fill();
+    x.beginPath(); x.arc(cx + 24, 232, 9, 0, 7); x.fill();
   };
   eye(160); eye(352);
   x.strokeStyle = '#2b1b14'; x.lineWidth = 10; x.lineCap = 'round';
-  x.beginPath(); x.arc(256, 250, 26, 0.3, Math.PI - 0.3); x.stroke();
-  x.fillStyle = 'rgba(238,120,120,0.35)';
-  x.beginPath(); x.ellipse(90, 268, 28, 17, 0, 0, 7); x.fill();
-  x.beginPath(); x.ellipse(422, 268, 28, 17, 0, 0, 7); x.fill();
+  x.beginPath(); x.arc(256, 252, 26, 0.3, Math.PI - 0.3); x.stroke();
+  x.fillStyle = 'rgba(238,120,120,0.45)';
+  x.beginPath(); x.ellipse(84, 270, 30, 18, 0, 0, 7); x.fill();
+  x.beginPath(); x.ellipse(428, 270, 30, 18, 0, 0, 7); x.fill();
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;

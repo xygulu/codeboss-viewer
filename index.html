@@ -6,7 +6,9 @@
 </script></head><body>
 <script type="module">
 import * as THREE from 'three';
-import { buildAll, P } from './pet-model.js';
+// 带时间戳打破模块缓存：本地 http.server 的启发式缓存和 GitHub Pages 的 max-age=600
+// 都会让改完 P 之后页面看不到变化（踩过两次），模块 URL 每次不同就强制重新拉取
+const { buildAll, P } = await import('./pet-model.js?v=' + Date.now());
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
@@ -37,7 +39,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffe
 renderer.setSize(W, H);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.toneMapping = THREE.AgXToneMapping;
-renderer.toneMappingExposure = 1.1;
+renderer.toneMappingExposure = 1.0;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.localClippingEnabled = true;
