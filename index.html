@@ -1,0 +1,192 @@
+<!doctype html><html><head><meta charset="utf-8">
+<style>html,body{margin:0;background:#eae3d5;overflow:hidden}canvas{display:block}</style>
+<script type="importmap">
+{"imports":{"three":"./vendor/three/build/three.module.js",
+            "three/addons/":"./vendor/three/addons/"}}
+</script></head><body>
+<script type="module">
+import * as THREE from 'three';
+import { buildAll, P } from './pet-model.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+const q = new URLSearchParams(location.search);
+const view = q.get('view') || 'hero';
+const section = q.get('sec') === '1';
+const W = window.innerWidth, H = window.innerHeight;
+
+// 顶部视图切换（发成网页时就是唯一导航）
+{
+  const links = [['3/4', 'hero'], ['正', 'front'], ['侧', 'side'], ['背', 'back'], ['底座', 'dock'], ['底面', 'bottom'], ['透视', 'xray']];
+  const nav = document.createElement('div');
+  nav.style.cssText = 'position:fixed;left:11px;top:11px;display:flex;gap:5px;z-index:9;font:12px/1 -apple-system,Helvetica,sans-serif';
+  const a = (t, u, on) => {
+    const el = document.createElement('a');
+    el.textContent = t; el.href = u;
+    el.style.cssText = `padding:5px 9px;border-radius:999px;text-decoration:none;color:#5a4a36;background:${on ? '#d9c7a6' : 'rgba(255,255,255,.62)'}`;
+    return el;
+  };
+  for (const [t, v] of links) nav.append(a(t, `?view=${v}${section ? '&sec=1' : ''}`, v === view));
+  nav.append(a(section ? '剖切 开' : '剖切', section ? `?view=${view}` : `?view=${view}&sec=1`, section));
+  document.body.append(nav);
+}
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setSize(W, H);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.AgXToneMapping;
+renderer.toneMappingExposure = 1.1;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.localClippingEnabled = true;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xe9dfcd);
+
+// ---- 程序化影棚环境：顶部亮光 + 两片柔光箱 + 暖色地面反弹 ----
+function studioEnv() {
+  const s = new THREE.Scene();
+  const sky = new THREE.Mesh(
+    new THREE.SphereGeometry(60, 32, 16),
+    new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      uniforms: { top: { value: new THREE.Color(0xfff6ea) }, bot: { value: new THREE.Color(0xbfae95) } },
+      vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+      fragmentShader: 'varying vec3 vP; uniform vec3 top; uniform vec3 bot; void main(){ float h = normalize(vP).y*0.5+0.5; gl_FragColor = vec4(mix(bot, top, pow(h,1.4)),1.0); }',
+    }));
+  s.add(sky);
+  const box = (w, h, pos, intensity) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }));
+    m.material.color.multiplyScalar(intensity);
+    m.position.copy(pos); m.lookAt(0, 10, 0); s.add(m);
+  };
+  box(40, 40, new THREE.Vector3(-24, 34, 20), 4.5);
+  box(30, 30, new THREE.Vector3(28, 16, -18), 2.0);
+  box(60, 24, new THREE.Vector3(0, 44, 8), 2.2);
+  return s;
+}
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(studioEnv(), 0.02).texture;
+scene.environmentIntensity = 0.65;
+
+const key = new THREE.DirectionalLight(0xfff2e0, 3.0);
+key.position.set(120, 210, 160);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.bias = -0.0006;
+key.shadow.radius = 3;
+Object.assign(key.shadow.camera, { left: -130, right: 130, top: 180, bottom: -50, near: 60, far: 700 });
+scene.add(key);
+
+const fill = new THREE.DirectionalLight(0xdfe6ff, 0.5);
+fill.position.set(-120, 90, 60);
+scene.add(fill);
+
+const rim = new THREE.DirectionalLight(0xffd8a8, 1.8);
+rim.position.set(-150, 70, -120);
+scene.add(rim);
+scene.add(new THREE.HemisphereLight(0xffffff, 0xcdbfa8, 0.5));
+
+// 桌面（程序化木纹，替代无限大的白地面，画面不再发灰）
+function woodTex() {
+  const c = document.createElement('canvas'); c.width = c.height = 1024;
+  const x = c.getContext('2d');
+  x.fillStyle = '#c49a6c'; x.fillRect(0, 0, 1024, 1024);
+  for (let i = 0; i < 260; i++) {
+    const y = Math.random() * 1024, a = 0.03 + Math.random() * 0.09;
+    x.strokeStyle = `rgba(${90 + Math.random() * 60 | 0},${60 + Math.random() * 40 | 0},30,${a})`;
+    x.lineWidth = 1 + Math.random() * 6;
+    x.beginPath();
+    for (let px = 0; px <= 1024; px += 32) x.lineTo(px, y + Math.sin(px / 130 + i) * 6);
+    x.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(4, 4);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(800, 800),
+  new THREE.MeshStandardMaterial({ map: woodTex(), roughness: 0.82 }));
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+for (const k of ['tilt', 'yaw']) {
+  const v = q.get(k);
+  if (v !== null) P.pose[k] = parseFloat(v);
+}
+const root = buildAll();
+root.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+
+if (section) {
+  const plane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0);
+  const map = new Map();
+  root.traverse(o => {
+    if (!o.isMesh) return;
+    let m = map.get(o.material);
+    if (!m) {
+      m = o.material.clone();
+      m.clippingPlanes = [plane];
+      m.side = THREE.DoubleSide;
+      map.set(o.material, m);
+    }
+    o.material = m;
+  });
+}
+
+if (view === 'xray') {
+  for (const n of ['body', 'hat']) {
+    const grp = root.getObjectByName(n);
+    if (grp) grp.traverse(o => {
+      if (!o.isMesh) return;
+      const m = o.material.clone();
+      m.transparent = true; m.opacity = 0.2; m.depthWrite = false;
+      o.material = m;
+    });
+  }
+}
+if (view === 'dock') ['body', 'hat', 'internals'].forEach(n => { const g = root.getObjectByName(n); if (g) g.visible = false; });
+if (view === 'bottom') {
+  ground.visible = false;
+  ['dock', 'internals'].forEach(n => { const g = root.getObjectByName(n); if (g) g.visible = false; });
+}
+scene.add(root);
+
+const size = view === 'dock' ? 128 : 150;
+const target = new THREE.Vector3(0, view === 'dock' ? 12 : 56, 0);
+let cam;
+if (view === 'hero' || view === 'dock' || view === 'xray') {
+  cam = new THREE.PerspectiveCamera(28, W / H, 1, 3000);
+  const d = view === 'dock' ? 250 : 400;
+  if (view === 'xray') cam.position.set(d * 0.58, d * 0.58, d * 0.8);
+  else cam.position.set(d * 0.42, d * 0.36, d * 0.88);
+} else if (view === 'bottom') {
+  cam = new THREE.PerspectiveCamera(20, W / H, 1, 3000);
+  cam.position.set(75, -250, 105);
+  target.set(0, 38, 0);
+} else {
+  cam = new THREE.OrthographicCamera(-size / 2 * W / H, size / 2 * W / H, size / 2, -size / 2, 1, 3000);
+  const dist = 500;
+  if (view === 'front') cam.position.set(0, target.y, dist);
+  if (view === 'side') cam.position.set(dist, target.y, 0);
+  if (view === 'back') cam.position.set(0, target.y, -dist);
+}
+cam.lookAt(target);
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, cam));
+if (q.get('ao') !== '0') {
+  const gtao = new GTAOPass(scene, cam, W, H);
+  gtao.output = GTAOPass.OUTPUT.Default;
+  gtao.blendIntensity = 0.9;
+  gtao.updateGtaoMaterial({ radius: 2.5, distanceExponent: 1.2, thickness: 1.5, scale: 1.0 });
+  composer.addPass(gtao);
+}
+composer.addPass(new OutputPass());
+composer.render();
+window.__ready = true;
+</script></body></html>
