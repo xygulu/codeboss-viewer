@@ -11,12 +11,17 @@ export const P = {
   face: { w: 42, h: 36, r: 11, bezel: 1.0, proud: 0.7, cy: 49 },
   // 帽壳直径约 0.77×机身、帽檐约等于机身宽：帽子是"扣在头顶"的，不能宽过脸
   // 檐内孔 = 2*(domeR-0.4)，比头顶那一截机身大 0.4mm 单边间隙，帽子能真的套下去
-  hat: { domeR: 27, domeH: 27, brimR: 34, brimT: 3.2, lift: -3.0 },
+  // lift = -4：帽檐落座面抬到 h−4（机身收肩之后最宽的一圈）。
+  // 再高（−3 以上）机身已经被 r17 的顶圆角收到 24.7，比 Ø52.4 的帽座还窄，
+  // 帽座就成了倒扣的蘑菇头；落在 h−4 时机身半宽 26.2，帽座正好与肩齐平
+  hat: { domeR: 27, domeH: 27, brimR: 34, brimT: 3.2, lift: -4.0 },
   // 坞高 24：后仰角越大，倾斜的托盘后沿越需要向下让位，坞就得越深。
   // 20mm 高只能装 ~4.5° 后仰；要 12° 得 33mm 深碗（会变成"桶"）
   // hole 90：本体圆角后的最大外接半径 42.4，坞口半径 43 只剩 0.6 太贴，放到 45
   dock: { w: 100, d: 100, h: 24, r: 28, hole: 90, holeR: 24, floor: 5 },
-  tray: { w: 82, r: 24, plate: 4, rim: 4.5, rimT: 5.5, bottom: 11 },
+  // rimT 5.0：唇口内径 72，本体底面外接 42.46，唇口 43.04，角上才留得出 0.58；
+  // 5.5 时角上只剩 0.09，装配时本体擦唇口
+  tray: { w: 82, r: 24, plate: 4, rim: 4.5, rimT: 5.0, bottom: 11 },
   ring: { od: 44, id: 39, hub: 14 },
   pogo: { rOut: 20.75, rIn: 0 },
   sw: { bodyH: 4, gap: 0.5 },
@@ -233,16 +238,27 @@ export function buildBody() {
     p.absarc(sc.r * Math.cos(a), sc.r * Math.sin(a), sc.hole / 2 + 0.1, 0, Math.PI * 2, true);
     return p;
   });
+  // 底面沉台 Ø46 × 1.0 深，**朝下开口**，金环贴在沉台顶面：pogo 的针尖在座位面以上 1.05、
+  // 带 1.2 行程，不沉下去就会把整机顶离座位面。做法是底板开 Ø46 通孔，圆片封在孔的**上面**，
+  // 底板中间就凹了个 1.0 的坑，螺丝柱和内腔都不受影响
+  const pocketR = 23, pocketD = 1.0;
+  const pocket = new THREE.Path();
+  pocket.absarc(0, 0, pocketR, 0, Math.PI * 2, true);
+  holes.unshift(pocket);
   cover.add(mesh(slab({ w: cw, h: cw, r: cr }, null, b.cover, Y.bodyBottom, 0.3, holes), MAT.cream, 'coverPlate'));
+  const disc = mesh(new THREE.CylinderGeometry(pocketR, pocketR, b.cover - pocketD, 64), MAT.cream, 'coverDisc');
+  disc.position.y = Y.bodyBottom + b.cover - (b.cover - pocketD) / 2;   // 圆片顶到 1.8，底下留 1.0 的坑
+  cover.add(disc);
 
-  // 底板的同心双环触点（金色，跟底板一起是装配件）
+  // 底板的同心双环触点（金色，跟底板一起是装配件），贴在沉台顶面（朝下可见）
+  const ringY = Y.bodyBottom + pocketD - 0.06;
   const ring = mesh(new THREE.RingGeometry(P.ring.id / 2, P.ring.od / 2, 72), MAT.gold, 'ringOuter');
   ring.rotation.x = Math.PI / 2;
-  ring.position.y = Y.bodyBottom - 0.03;
+  ring.position.y = ringY;
   cover.add(ring);
   const hub = mesh(new THREE.CircleGeometry(P.ring.hub / 2, 48), MAT.gold, 'ringHub');
   hub.rotation.x = Math.PI / 2;
-  hub.position.y = Y.bodyBottom - 0.03;
+  hub.position.y = ringY;
   cover.add(hub);
   g.add(cover);
 
@@ -326,21 +342,20 @@ export function buildHat() {
   // 所以整个帽子能从上往下套进去，单边留 0.4mm 装配间隙，不是硬穿模
   const inner = h.domeR - 1.0;        // 比头顶窄 0.2（过盈），帽子是靠弹性压进去的，不会自己掉
   const drop = 1.4;                   // 帽檐向外微微下垂
-  const zFront = 2, zSquash = 0.95;   // 帽檐前长后短
+  // 帽檐必须是正圆、不能 z 向压扁也不能前后偏移：内孔一压扁（0.95）z 向就只剩 24.7，
+  // 比 Ø52.4 的帽座小 1.5，帽子根本压不进去；前后偏 2 更会啃掉后半圈 3.5
 
   // 帽檐：薄环，向外微垂，外沿一圈卷边（车削件，壁厚 T）
   const prof = [
     [inner, 0], [inner + 1.2, -0.15 * drop], [R - 2.4, -drop], [R - 2.4, -drop + T], [inner, T], [inner, 0],
   ].map(([r, y]) => new THREE.Vector2(r, y));
   const brim = mesh(new THREE.LatheGeometry(prof, 96), MAT.mustard, 'brim');
-  brim.position.set(0, Y.brim, zFront);
-  brim.scale.z = zSquash;
+  brim.position.y = Y.brim;
   g.add(brim);
 
   const bead = mesh(new THREE.TorusGeometry(R - 2.4, T * 0.62, 12, 96), MAT.mustard, 'brimBead');
   bead.rotation.x = Math.PI / 2;
-  bead.position.set(0, Y.brim - drop + T / 2, zFront);
-  bead.scale.z = zSquash;
+  bead.position.y = Y.brim - drop + T / 2;
   g.add(bead);
 
   // 帽壳：一体成型（中脊就在这个网格里），底边正好压在帽檐上
@@ -370,8 +385,7 @@ export function buildHat() {
   // 装半透明 PC 环 + 帽壳里的 LED），模型里用发光环表示
   const glow = mesh(new THREE.TorusGeometry(R - 0.8, 0.55, 8, 96), MAT.led, 'glow');
   glow.rotation.x = Math.PI / 2;
-  glow.position.set(0, Y.brim - drop, zFront);
-  glow.scale.z = zSquash;
+  glow.position.y = Y.brim - drop;
   g.add(glow);
 
   const spill = new THREE.PointLight(0xffa53c, 6, 46, 2);
@@ -400,13 +414,14 @@ export function buildDock() {
     { w: t.w - t.rimT * 2, h: t.w - t.rimT * 2, r: t.r - t.rimT }, t.rim, 0, 1.0),
     MAT.mustard, 'trayRim'));
 
-  // pogo 针 ×2，装在落座面上、垂直于座位面（跟托盘一起倾斜），随托盘浮动所以接触压力不变
+  // pogo 针 ×2，装在落座面上、垂直于座位面（跟托盘一起倾斜），随托盘浮动所以接触压力不变。
+  // 画的是压缩到位的状态：针尖 1.05，沉台顶（金环面）0.94，留 0.11 的预压
   for (const r of [P.pogo.rOut, P.pogo.rIn]) {
-    const h = 1.2;
+    const h = 0.45;
     const pin = mesh(new THREE.CylinderGeometry(1.1, 1.1, h, 16), MAT.gold, 'pogo');
     pin.position.set(r, h / 2, 0);
     tray.add(pin);
-    const tip = mesh(new THREE.SphereGeometry(1.05, 16, 10), MAT.gold, 'pogoTip');
+    const tip = mesh(new THREE.SphereGeometry(0.6, 16, 10), MAT.gold, 'pogoTip');
     tip.position.set(r, h, 0);
     tray.add(tip);
   }
