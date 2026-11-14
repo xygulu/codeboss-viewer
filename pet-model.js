@@ -474,9 +474,21 @@ export function buildInternals() {
   batt.position.set(b.x, Y.bodyBottom + 3 + b.h / 2, b.z);
   g.add(batt);
 
+  // 主板（承载板）：XIAO 用 2.5 的排针插在上面，IMU、pogo 线和灯线都焊在这块板上
+  const carrier = mesh(new THREE.BoxGeometry(32, 1.6, 24), MAT.pcb, 'carrier');
+  carrier.position.set(m.x, Y.bodyBottom + 43.2, m.z);
+  g.add(carrier);
+
   const mcu = mesh(new THREE.BoxGeometry(m.w, m.h, m.d), MAT.pcb, 'xiao');
-  mcu.position.set(m.x, Y.bodyBottom + 45, m.z);
+  mcu.position.set(m.x, Y.bodyBottom + 49.0, m.z);   // 板顶 44.0 + 2.5 排针 + 2.5 板厚
   g.add(mcu);
+
+  // 6 轴 IMU（QMI8658 / BMI270 一类 3.2×3.2 QFN），焊在主板上、靠近机身中线。
+  // 拿起、抚摸、轻敲、摇晃、倒扣全靠它——唯一能把"被摸"变成事件的零件。
+  // 装在主板上而不是贴在外壳上：刚性够，离电池和线束远，低频噪声小
+  const imu = mesh(new THREE.BoxGeometry(3.2, 1, 3.2), MAT.black, 'imu');
+  imu.position.set(m.x - 12, Y.bodyBottom + 44.5, m.z + 1);
+  g.add(imu);
 
   // 屏幕模组贴在内壁前方，四角留 0.1（方屏的角会顶到内腔圆角，纯贴面会穿 0.3）
   const panel = mesh(new THREE.BoxGeometry(P.face.w, P.face.h, 3), MAT.black, 'panel');
